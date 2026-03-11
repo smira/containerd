@@ -331,7 +331,7 @@ func (c *Controller) ensureImageExists(ctx context.Context, ref string, config *
 	}
 	// Pull image to ensure the image exists
 	// TODO: Cleaner interface
-	imageID, err := c.imageService.PullImage(ctx, ref, nil, config, runtimeHandler)
+	imageID, err := c.imageService.PullImage(ctx, ref, nil, nil, config, runtimeHandler)
 	if err != nil {
 		return nil, fmt.Errorf("failed to pull image %q: %w", ref, err)
 	}

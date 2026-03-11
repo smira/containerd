@@ -113,14 +113,14 @@ func (c *GRPCCRIImageService) PullImage(ctx context.Context, r *runtime.PullImag
 		return ParseAuth(hostauth, host)
 	}
 
-	ref, err := c.CRIImageService.PullImage(ctx, imageRef, credentials, r.SandboxConfig, r.GetImage().GetRuntimeHandler())
+	ref, err := c.CRIImageService.PullImage(ctx, imageRef, credentials, r.Auth, r.SandboxConfig, r.GetImage().GetRuntimeHandler())
 	if err != nil {
 		return nil, err
 	}
 	return &runtime.PullImageResponse{ImageRef: ref}, nil
 }
 
-func (c *CRIImageService) PullImage(ctx context.Context, name string, credentials func(string) (string, string, error), sandboxConfig *runtime.PodSandboxConfig, runtimeHandler string) (_ string, err error) {
+func (c *CRIImageService) PullImage(ctx context.Context, name string, credentials func(string) (string, string, error), authConfig *runtime.AuthConfig, sandboxConfig *runtime.PodSandboxConfig, runtimeHandler string) (_ string, err error) {
 	span := tracing.SpanFromContext(ctx)
 	defer func() {
 		// TODO: add domain label for imagePulls metrics, and we may need to provide a mechanism
@@ -182,7 +182,7 @@ func (c *CRIImageService) PullImage(ctx context.Context, name string, credential
 	// TODO: Add support for DisableSnapshotAnnotations, DiscardUnpackedLayers, ImagePullWithSyncFs and unpackDuplicationSuppressor
 	var image containerd.Image
 	if c.config.UseLocalImagePull {
-		image, err = c.pullImageWithLocalPull(ctx, ref, credentials, snapshotter, labels, imagePullProgressTimeout)
+		image, err = c.pullImageWithLocalPull(ctx, ref, credentials, authConfig, snapshotter, labels, imagePullProgressTimeout)
 	} else {
 		image, err = c.pullImageWithTransferService(ctx, ref, credentials, snapshotter, labels, imagePullProgressTimeout)
 	}
@@ -236,6 +236,7 @@ func (c *CRIImageService) pullImageWithLocalPull(
 	ctx context.Context,
 	ref string,
 	credentials func(string) (string, string, error),
+	authConfig *runtime.AuthConfig,
 	snapshotter string,
 	labels map[string]string,
 	imagePullProgressTimeout time.Duration,
@@ -247,6 +248,15 @@ func (c *CRIImageService) pullImageWithLocalPull(
 		Headers: c.config.Registry.Headers,
 		Hosts:   c.registryHosts(ctx, credentials, pullReporter.optionUpdateClient),
 	})
+
+	digestedRef, err := c.talosVerifyImage(ctx, ref, authConfig, labels)
+	if err != nil {
+		return nil, fmt.Errorf("failed to verify image %q with talos: %w", ref, err)
+	}
+
+	if digestedRef != "" {
+		ref = digestedRef
+	}
 
 	log.G(ctx).Debugf("PullImage %q with snapshotter %s using client.Pull()", ref, snapshotter)
 	pullOpts := []containerd.RemoteOpt{
